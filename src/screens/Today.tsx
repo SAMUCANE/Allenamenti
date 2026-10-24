@@ -5,7 +5,17 @@ import { addDays, daysBetween, long, mondayOf, short, today, weekday } from "../
 import { useRange } from "../data/hooks";
 import { SessionCard } from "../components/SessionCard";
 import { SPORT_COLOR, SportChip, fmtKm, fmtMin, useToast } from "../components/ui";
-import type { StravaActivity } from "../data/types";
+import type { Sport, StravaActivity } from "../data/types";
+
+function emojiOf(s: Sport): string {
+  switch (s) {
+    case "corsa": return "🏃";
+    case "bici": return "🚴";
+    case "nuoto": return "🏊";
+    case "forza": return "🏋️";
+    case "mobilita": return "🧘";
+  }
+}
 
 export function Today() {
   const t = today();
@@ -31,20 +41,43 @@ export function Today() {
     toast("Aggiunta al registro");
   }
 
+  const firstToday = day?.items.find((i) => i.session.sport !== "mobilita") ?? day?.items[0];
+
   return (
     <>
       {upcoming.length > 0 && (
-        <div className="card">
-          <div className="row wrap" style={{ gap: 18 }}>
-            {upcoming.map((g) => (
-              <Link key={g.id} to="/obiettivi" className="stat" style={{ textDecoration: "none", color: "inherit" }}>
-                <b>{daysBetween(t, g.date!)} gg</b>
-                <span>{label(g)}</span>
-              </Link>
-            ))}
-          </div>
+        <div className="row wrap" style={{ gap: 10 }}>
+          {upcoming.map((g) => (
+            <Link key={g.id} to="/obiettivi" className="countdown" style={{ textDecoration: "none" }}>
+              <span className="d">{daysBetween(t, g.date!)}</span>
+              <span>giorni a {label(g)}</span>
+            </Link>
+          ))}
         </div>
       )}
+
+      <div className="hero">
+        <Link to="/" className="hero-card hero-today" style={{ textDecoration: "none" }} aria-label="Attività di oggi">
+          <div className="row between">
+            <span className="hk">Oggi</span>
+            <span className="emoji" aria-hidden="true">{firstToday ? emojiOf(firstToday.session.sport) : "🧘"}</span>
+          </div>
+          <div>
+            <div className="ht">{firstToday ? firstToday.session.title : "Riposo"}</div>
+            <div className="hs">{firstToday ? firstToday.session.detail.replace(/\s+·.*$/, "").slice(0, 40) : "Recupera bene"}</div>
+          </div>
+        </Link>
+        <div className="hero-card hero-weather" aria-label="Meteo locale">
+          <div className="row between">
+            <span className="hk">Meteo</span>
+            <span className="emoji" aria-hidden="true">☀️</span>
+          </div>
+          <div>
+            <div className="temp">22<span className="deg">°</span></div>
+            <div className="hs">Soleggiato · Firenze</div>
+          </div>
+        </div>
+      </div>
 
       <h2 className="sec">Oggi</h2>
       {day?.items.length ? (

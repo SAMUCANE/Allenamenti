@@ -1,14 +1,18 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { db, uid } from "../data/db";
 import { parse, short, today, weekday, withYear } from "../data/dates";
-import type { Kind, LogEntry, PlannedSession, Sport } from "../data/types";
+import type { Kind, LogEntry, PlannedSession, Program, Sport } from "../data/types";
 import { SPORT_LABEL } from "../data/types";
 import { SessionCard } from "../components/SessionCard";
-import { SPORT_COLOR, SportChip, useToast } from "../components/ui";
+import { SPORT_COLOR, useToast } from "../components/ui";
 
 const PROG_COLOR: Record<string, string> = { "--run": "var(--run)", "--bike": "var(--bike)", "--swim": "var(--swim)", "--str": "var(--str)", "--mob": "var(--mob)" };
+const EMOJI: Record<string, string> = { corsa: "🏃", bici: "🚴", nuoto: "🏊", forza: "🏋️", mobilita: "🧘", multi: "⭐" };
+const CARD_CLASS: Record<string, string> = { "--run": "p-run", "--bike": "p-bike", "--swim": "p-swim", "--str": "p-force", "--mob": "p-rest" };
+
+type Filter = "tutti" | Sport;
 
 export function Programs() {
   const t = today();
@@ -20,35 +24,120 @@ export function Programs() {
     return { programs, sessions, logs };
   }, []);
   const [adding, setAdding] = useState(false);
+  const [filter, setFilter] = useState<Filter>("tutti");
 
-  if (!data) return null;
-  const doneIds = new Set(data.logs.filter((l) => l.status !== "saltato" && l.plannedId).map((l) => l.plannedId!));
+  const info = useMemo(() => {
+    if (!data) return null;
+    const doneIds = new Set(data.logs.filter((l) => l.status !== "saltato" && l.plannedId).map((l) => l.plannedId!));
+    const by: Record<string, { done: number; total: number; past: number; next?: PlannedSession }> = {};
+    for (const p of data.programs) {
+      const ss = data.sessions.filter((s) => s.programId === p.id);
+      const past = ss.filter((s) => s.date <= t);
+      const done = ss.filter((s) => doneIds.has(s.id)).length;
+      const next = ss.filter((s) => s.date >= t).sort((a, b) => a.date.localeCompare(b.date))[0];
+      by[p.id] = { done, total: ss.length, past: past.length, next };
+    }
+    return by;
+  }, [data, t]);
+
+  if (!data || !info) return null;
+
+  const visible = filter === "tutti" ? data.programs : data.programs.filter((p) => p.sport === filter);
+  const featured = visible[0];
+  const rest = visible.slice(1);
+
   return (
     <>
-      {data.programs.map((p) => {
-        const ss = data.sessions.filter((s) => s.programId === p.id);
-        const past = ss.filter((s) => s.date <= t);
-        const done = ss.filter((s) => doneIds.has(s.id)).length;
-        const next = ss.filter((s) => s.date >= t).sort((a, b) => a.date.localeCompare(b.date))[0];
-        const pct = ss.length ? (past.length / ss.length) * 100 : 0;
-        return (
-          <Link key={p.id} to={`/programmi/${p.id}`} className="card" style={{ textDecoration: "none", color: "inherit", borderLeft: `5px solid ${PROG_COLOR[p.color]}` }}>
-            <div className="row between">
-              <h3 className="num" style={{ fontSize: 23, margin: 0 }}>{p.name}</h3>
-              {p.sport !== "multi" && <SportChip sport={p.sport} />}
-            </div>
-            <div className="small muted">{short(p.start)} → {withYear(p.end)} · {ss.length} sedute</div>
-            <p className="small" style={{ margin: "6px 0 10px" }}>{p.description}</p>
-            <div className="bar" style={{ ["--c" as string]: PROG_COLOR[p.color] }}><i style={{ width: `${pct}%` }} /></div>
-            <div className="row between tiny muted" style={{ marginTop: 6 }}>
-              <span>{done} fatte su {past.length} passate</span>
-              {next && <span>Prossima: {weekday(next.date)} {short(next.date)}</span>}
-            </div>
-          </Link>
-        );
-      })}
-      {adding ? <AddSession onDone={() => setAdding(false)} /> : <button className="btn" onClick={() => setAdding(true)}>+ Aggiungi una seduta extra</button>}
+      {/* Filter chips */}
+      <div className="filters" role="tablist">
+        {(["tutti", "corsa", "bici", "nuoto", "forza"] as Filter[]).map((f) => (
+          <button key={f} className={`chip-f${filter === f ? " on" : ""}`} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>
+            {f === "tutti" ? "Tutti" : SPORT_LABEL[f as Sport]}
+          </button>
+        ))}
+      </div>
+
+      {/* Featured program */}
+      {featured && <FeaturedCard p={featured} meta={info[featured.id]} />}
+
+      {/* Other programs grid */}
+      {rest.length > 0 && (
+        <>
+          <h2 className="sec">Altri programmi</h2>
+          <div className="prog-grid">
+            {rest.map((p) => <SmallProgramCard key={p.id} p={p} meta={info[p.id]} />)}
+          </div>
+        </>
+      )}
+
+      {visible.length === 0 && <div className="card empty">Nessun programma per questo filtro.</div>}
+
+      {/* Add session */}
+      {adding ? (
+        <AddSession onDone={() => setAdding(false)} />
+      ) : (
+        <button className="add-row" onClick={() => setAdding(true)}>
+          <span className="ico" aria-hidden="true">➕</span>
+          <div style={{ flex: 1 }}>
+            <div className="ar-t">Aggiungi una seduta extra</div>
+            <div className="ar-s">Si attacca al programma che scegli</div>
+          </div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" strokeOpacity="0.5" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+      )}
     </>
+  );
+}
+
+function FeaturedCard({ p, meta }: { p: Program; meta: { done: number; total: number; past: number; next?: PlannedSession } }) {
+  const C = 188.496; // 2π·30
+  const pct = meta.total ? Math.min(meta.past / meta.total, 1) : 0;
+  const offset = C * (1 - pct);
+  return (
+    <Link to={`/programmi/${p.id}`} className="prog-featured" style={{ background: PROG_COLOR[p.color] }}>
+      <div className="ft">
+        <span className="fk">In corso · priorità</span>
+        <span className="fe" aria-hidden="true">{EMOJI[p.sport]}</span>
+      </div>
+      <div className="fn">{p.name}</div>
+      <div className="fs">{p.description.length > 90 ? p.description.slice(0, 88) + "…" : p.description}</div>
+      <div className="frow">
+        <div className="ring" aria-label={`Progresso ${meta.past} su ${meta.total}`}>
+          <svg width="72" height="72" viewBox="0 0 72 72">
+            <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="8"/>
+            <circle cx="36" cy="36" r="30" fill="none" stroke="#fff" strokeWidth="8" strokeLinecap="round"
+              strokeDasharray={C} strokeDashoffset={offset}/>
+          </svg>
+          <div className="n">{meta.past}<small>/{meta.total}</small></div>
+        </div>
+        <div className="fnext">
+          <div className="k">{meta.next ? "Prossima seduta" : "Programma completato"}</div>
+          {meta.next && <>
+            <div className="t">{meta.next.title}</div>
+            <div className="s">{weekday(meta.next.date)} {short(meta.next.date)}{meta.next.detail ? ` · ${meta.next.detail.replace(/\s+·.*$/, "").slice(0, 40)}` : ""}</div>
+          </>}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function SmallProgramCard({ p, meta }: { p: Program; meta: { done: number; total: number; past: number; next?: PlannedSession } }) {
+  const pct = meta.total ? Math.round((meta.past / meta.total) * 100) : 0;
+  const cls = CARD_CLASS[p.color] ?? "p-rest";
+  return (
+    <Link to={`/programmi/${p.id}`} className={`prog-card ${cls}`}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span className="emoji" aria-hidden="true">{EMOJI[p.sport]}</span>
+        {meta.next && <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", opacity: 0.85, textTransform: "uppercase" }}>{weekday(meta.next.date)} {short(meta.next.date)}</span>}
+      </div>
+      <div>
+        <div className="ct">{p.name}</div>
+        <div className="cs">{p.description.replace(/\s+/g, " ").slice(0, 44)}{p.description.length > 44 ? "…" : ""}</div>
+        <div className="cmini"><span style={{ width: `${pct}%` }} /></div>
+        <div className="cfoot"><span>{meta.past} / {meta.total} sedute</span><span>{pct}%</span></div>
+      </div>
+    </Link>
   );
 }
 
@@ -98,7 +187,6 @@ export function ProgramDetail() {
   const { p, ss } = data;
   const byPlanned = new Map(data.logs.map((l) => [l.plannedId!, l]));
 
-  // raggruppa per settimana del programma se c'è, altrimenti per mese
   const groups = new Map<string, PlannedSession[]>();
   for (const s of ss) {
     const k = s.week ? `Settimana ${s.week}` : parse(s.date).toLocaleDateString("it-IT", { month: "long", year: "numeric" });

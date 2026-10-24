@@ -1,11 +1,14 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { db, uid } from "../data/db";
 import { addDays, short, today, weekday } from "../data/dates";
 import { getAuth, sync } from "../data/strava";
 import type { Sport, Status } from "../data/types";
 import { SPORT_LABEL } from "../data/types";
-import { Icon, SPORT_COLOR, fmtKm, fmtMin, useToast } from "../components/ui";
+import { Icon, fmtKm, fmtMin, useToast } from "../components/ui";
+
+const EMOJI: Record<string, string> = { corsa: "🏃", bici: "🚴", nuoto: "🏊", forza: "🏋️", mobilita: "🧘", altro: "⭐" };
+const ICO_CLASS: Record<string, string> = { corsa: "ico-run", bici: "ico-bike", nuoto: "ico-swim", forza: "ico-force", mobilita: "ico-mob", altro: "ico-mob" };
 
 interface Row {
   key: string;
@@ -17,13 +20,18 @@ interface Row {
   source: "registro" | "strava";
   note?: string;
   logId?: string;
+  km?: number;
+  minutes?: number;
 }
+
+type Filter = "tutti" | Sport | "strava";
 
 export function Log() {
   const toast = useToast();
   const [days, setDays] = useState(45);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState<Filter>("tutti");
   const from = addDays(today(), -days);
   const auth = useLiveQuery(() => getAuth(), []);
   const rows = useLiveQuery(async () => {
@@ -34,27 +42,53 @@ export function Log() {
     const out: Row[] = logs.map((l) => {
       const a = l.stravaId ? sById.get(l.stravaId) : undefined;
       return {
-        key: l.id, date: l.date, sport: l.sport, title: l.title, status: l.status, source: "registro", note: l.note, logId: l.id,
-        meta: [fmtKm(l.km ?? a?.km), fmtMin(l.minutes ?? a?.movingMin), (l.avgHr ?? a?.avgHr) ? `${l.avgHr ?? a?.avgHr} bpm` : "", l.rpe ? `fatica ${l.rpe}/10` : "", a ? "Strava" : ""].filter(Boolean).join(" · "),
+        key: l.id, date: l.date, sport: l.sport, title: l.title, status: l.status, source: a ? "strava" : "registro", note: l.note, logId: l.id,
+        km: l.km ?? a?.km, minutes: l.minutes ?? a?.movingMin,
+        meta: [fmtKm(l.km ?? a?.km), fmtMin(l.minutes ?? a?.movingMin), (l.avgHr ?? a?.avgHr) ? `${l.avgHr ?? a?.avgHr} bpm` : "", l.rpe ? `fatica ${l.rpe}/10` : ""].filter(Boolean).join(" · "),
       };
     });
     for (const a of strava) {
       if (linked.has(a.id)) continue;
-      out.push({ key: "s" + a.id, date: a.date, sport: a.sport, title: a.name, source: "strava", meta: [fmtKm(a.km), fmtMin(a.movingMin), a.avgHr ? `${a.avgHr} bpm` : "", a.elev ? `+${a.elev} m` : ""].filter(Boolean).join(" · ") });
+      out.push({ key: "s" + a.id, date: a.date, sport: a.sport, title: a.name, source: "strava", km: a.km, minutes: a.movingMin, meta: [fmtKm(a.km), fmtMin(a.movingMin), a.avgHr ? `${a.avgHr} bpm` : "", a.elev ? `+${a.elev} m` : ""].filter(Boolean).join(" · ") });
     }
     return out.sort((x, y) => y.date.localeCompare(x.date));
   }, [from]);
+
+  // Monthly KPIs computed over current calendar month
+  const monthKpis = useMemo(() => {
+    const t = today();
+    const m = t.slice(0, 7);
+    const list = (rows ?? []).filter((r) => r.date.startsWith(m) && r.status !== "saltato");
+    const sedute = list.filter((r) => r.source === "registro" || r.sport !== "altro").length;
+    const km = list.filter((r) => r.sport === "corsa" || r.sport === "bici").reduce((s, r) => s + (r.km ?? 0), 0);
+    const minTot = list.reduce((s, r) => s + (r.minutes ?? 0), 0);
+    const hh = Math.floor(minTot / 60);
+    return { sedute, km, hh };
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    if (!rows) return [];
+    if (filter === "tutti") return rows;
+    if (filter === "strava") return rows.filter((r) => r.source === "strava");
+    return rows.filter((r) => r.sport === filter);
+  }, [rows, filter]);
+
+  // Group by date
+  const groups = useMemo(() => {
+    const g = new Map<string, Row[]>();
+    for (const r of filtered) {
+      if (!g.has(r.date)) g.set(r.date, []);
+      g.get(r.date)!.push(r);
+    }
+    return [...g.entries()];
+  }, [filtered]);
 
   async function doSync() {
     setBusy(true);
     try {
       const r = await sync();
       toast(`Strava: ${r.added} nuove attività, ${r.matched} abbinate al programma`);
-    } catch (e) {
-      toast((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
   }
 
   async function remove(id: string) {
@@ -62,39 +96,68 @@ export function Log() {
     toast("Voce eliminata");
   }
 
+  const t = today();
+  const nowLabel = new Date(t.slice(0, 10)).toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+
   return (
     <>
-      <div className="row wrap">
-        <button className="btn" onClick={() => setAdding(!adding)} aria-expanded={adding}><span className="row" style={{ gap: 6 }}><Icon name="plus" size={18} />Allenamento</span></button>
+      {/* Monthly summary strip */}
+      <div className="log-strip">
+        <div className="log-kpi"><div className="n">{monthKpis.sedute}</div><div className="l">Sedute</div></div>
+        <div className="log-kpi"><div className="n">{monthKpis.km.toLocaleString("it-IT", { maximumFractionDigits: 1 })}<small>km</small></div><div className="l">Corsa + bici</div></div>
+        <div className="log-kpi"><div className="n">{monthKpis.hh}<small>h</small></div><div className="l">{nowLabel}</div></div>
+      </div>
+
+      {/* Actions row */}
+      <div className="row wrap" style={{ gap: 8 }}>
+        <button className="btn" onClick={() => setAdding(!adding)} aria-expanded={adding}><span className="row" style={{ gap: 6 }}><Icon name="plus" size={16} />Allenamento</span></button>
         {auth ? (
-          <button className="btn" onClick={doSync} disabled={busy}><span className="row" style={{ gap: 6 }}><Icon name="sync" size={18} />{busy ? "Sincronizzo…" : "Sincronizza Strava"}</span></button>
+          <button className="btn" onClick={doSync} disabled={busy}><span className="row" style={{ gap: 6 }}><Icon name="sync" size={16} />{busy ? "Sincronizzo…" : "Strava"}</span></button>
         ) : (
-          <span className="small muted">Collega Strava dalle impostazioni ⚙︎ per importare le attività.</span>
+          <span className="small muted">Collega Strava dalle ⚙︎ per importare le attività.</span>
         )}
       </div>
       {adding && <AddLog onDone={() => setAdding(false)} />}
 
-      <div className="card list">
-        {rows?.length === 0 && <div className="empty">Ancora niente qui. Segna le sedute dalla schermata Oggi o sincronizza Strava.</div>}
-        {rows?.map((r) => (
-          <div key={r.key} className="li">
-            <div className="d"><b>{short(r.date).split(" ")[0]}</b>{weekday(r.date)} {short(r.date).split(" ")[1]}</div>
-            <div>
-              <div className="row"><span className="dot" style={{ ["--c" as string]: SPORT_COLOR[r.sport] }} /><span className="t">{r.title}</span></div>
-              <div className="small muted">{r.meta || (r.source === "strava" ? "Strava" : "")}</div>
-              {r.note && <div className="small">“{r.note}”</div>}
-            </div>
-            <div style={{ textAlign: "right" }}>
-              {r.status === "fatto" && <span className="pill ok">Fatta</span>}
-              {r.status === "parziale" && <span className="pill warn">Parziale</span>}
-              {r.status === "saltato" && <span className="pill bad">Saltata</span>}
-              {r.source === "strava" && <span className="pill">Strava</span>}
-              {r.logId && <div><button className="btn ghost tiny" style={{ minHeight: 0, padding: "2px 6px", marginTop: 4 }} onClick={() => remove(r.logId!)} aria-label={`Elimina ${r.title}`}>Elimina</button></div>}
-            </div>
-          </div>
+      {/* Filter chips */}
+      <div className="filters" role="tablist">
+        {(["tutti", "corsa", "bici", "nuoto", "forza"] as Filter[]).map((f) => (
+          <button key={f} className={`chip-f${filter === f ? " on" : ""}`} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>
+            {f === "tutti" ? "Tutti" : `${EMOJI[f]} ${SPORT_LABEL[f as Sport]}`}
+          </button>
         ))}
+        <button className={`chip-f${filter === "strava" ? " on" : ""}`} role="tab" aria-selected={filter === "strava"} onClick={() => setFilter("strava")}><span className="d" />Strava</button>
       </div>
+
+      {/* Timeline */}
+      {groups.length === 0 && <div className="card empty">Ancora niente qui. Segna le sedute dalla schermata Oggi o sincronizza Strava.</div>}
+      {groups.map(([date, list]) => (
+        <div key={date} className="log-group">
+          <div className="log-group-h">
+            <span className="d">{date === t ? "Oggi · " : ""}{weekday(date)} {short(date)}</span>
+            <span className="t">{list.length} {list.length === 1 ? "attività" : "attività"}</span>
+          </div>
+          {list.map((r) => (
+            <div key={r.key} className="log-row">
+              <div className={`ico ${ICO_CLASS[r.sport] ?? "ico-mob"}`} aria-hidden="true">{EMOJI[r.sport] ?? "⭐"}</div>
+              <div style={{ minWidth: 0 }}>
+                <div className="lt">{r.title}{r.source === "strava" && <span className="strava-badge">STRAVA</span>}</div>
+                <div className="ls">{r.meta || (r.source === "strava" ? "Strava" : "")}</div>
+                {r.note && <div className="small" style={{ marginTop: 2, fontStyle: "italic" }}>“{r.note}”</div>}
+              </div>
+              <div className="time">
+                {r.status === "fatto" && <span className="pill ok">✓</span>}
+                {r.status === "parziale" && <span className="pill warn">◐</span>}
+                {r.status === "saltato" && <span className="pill bad">✕</span>}
+                {r.logId && <div><button className="btn ghost tiny" style={{ minHeight: 0, padding: "2px 6px", marginTop: 4 }} onClick={() => remove(r.logId!)} aria-label={`Elimina ${r.title}`}>×</button></div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
       <button className="btn ghost" onClick={() => setDays(days + 60)}>Mostra più vecchi</button>
+      <p className="tiny muted" style={{ textAlign: "center", margin: 0 }}>Ultime {days} giornate · {rows?.length ?? 0} totali</p>
     </>
   );
 }
@@ -131,3 +194,4 @@ function AddLog({ onDone }: { onDone: () => void }) {
     </div>
   );
 }
+

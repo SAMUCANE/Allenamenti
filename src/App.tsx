@@ -6,6 +6,7 @@ import { Log } from "./screens/Log";
 import { Goals } from "./screens/Goals";
 import { Settings } from "./screens/Settings";
 import { Icon, ToastProvider } from "./components/ui";
+import { CaneAssistant } from "./components/CaneAssistant";
 import { long, today } from "./data/dates";
 
 const TITLES: Record<string, string> = {
@@ -60,11 +61,15 @@ export default function App() {
               <Route path="*" element={<Today />} />
             </Routes>
           </main>
+          <CaneAssistant />
           <nav className="nav" aria-label="Sezioni">
             <ul>
               {TABS.map((t) => (
                 <li key={t.to}>
-                  <NavLink to={t.to} end={t.to === "/"}><Icon name={t.icon} />{t.label}</NavLink>
+                  <NavLink to={t.to} end={t.to === "/"}>
+                    <span className="ico-wrap"><Icon name={t.icon} size={18} /></span>
+                    {t.label}
+                  </NavLink>
                 </li>
               ))}
             </ul>
