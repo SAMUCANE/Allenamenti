@@ -114,7 +114,7 @@ function calcCountdown(date: string) {
 }
 
 function RecordCard({ g, onClick }: { g: Goal; onClick: () => void }) {
-  const kind = SPORT_FROM_TITLE(g.title, g.detail);
+  const kind = g.sport ? (({ corsa: "run", bici: "bike", nuoto: "swim" } as const)[g.sport]) : SPORT_FROM_TITLE(g.title, g.detail);
   const name = g.title.replace(/^Salita\s+/i, "").trim();
   const nameShort = name.length > 18 ? name.slice(0, 17) + "…" : name;
   const curShort = (g.current ?? "").replace(/\s*\(.*\)\s*/, "").split(",")[0] || "—";
@@ -155,9 +155,9 @@ function TestRow({ g, onClick }: { g: Goal; onClick: () => void }) {
 
 function GoalEditor({ g, onClose }: { g: Goal; onClose: () => void }) {
   const toast = useToast();
-  const [f, setF] = useState({ current: g.current ?? "", target: g.target, date: g.date ?? "", detail: g.detail ?? "" });
+  const [f, setF] = useState({ current: g.current ?? "", target: g.target, date: g.date ?? "", detail: g.detail ?? "", sport: g.sport ?? "" });
   async function save() {
-    await db.goals.update(g.id, { current: f.current || undefined, target: f.target, date: f.date || undefined, detail: f.detail || undefined });
+    await db.goals.update(g.id, { current: f.current || undefined, target: f.target, date: f.date || undefined, detail: f.detail || undefined, sport: (f.sport || undefined) as "corsa" | "bici" | "nuoto" | undefined });
     toast("Obiettivo aggiornato");
     onClose();
   }
@@ -174,6 +174,12 @@ function GoalEditor({ g, onClose }: { g: Goal; onClose: () => void }) {
     <div className="card">
       <h3 className="num" style={{ fontSize: 20, margin: 0 }}>{g.title}</h3>
       <div className="form">
+        <label>Sport<select id={`gs-${g.id}`} value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value })}>
+          <option value="">Auto (dal titolo)</option>
+          <option value="corsa">🏃 Corsa</option>
+          <option value="bici">🚴 Bici</option>
+          <option value="nuoto">🏊 Nuoto</option>
+        </select></label>
         <label>Adesso<input id={`gc-${g.id}`} value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} placeholder="Es. 15:38 (12/11)" /></label>
         <label>Obiettivo<input id={`gt-${g.id}`} value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} /></label>
         <label>Data<input id={`gd-${g.id}`} type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></label>

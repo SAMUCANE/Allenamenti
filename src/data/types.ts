@@ -84,6 +84,7 @@ export interface Goal {
   current?: string;
   detail?: string;
   done?: boolean;
+  sport?: "corsa" | "bici" | "nuoto";
 }
 
 export interface WeightEntry {

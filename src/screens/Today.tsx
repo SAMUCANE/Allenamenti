@@ -6,6 +6,7 @@ import { useRange } from "../data/hooks";
 import { SessionCard } from "../components/SessionCard";
 import { SPORT_COLOR, SportChip, fmtKm, fmtMin, useToast } from "../components/ui";
 import type { Sport, StravaActivity } from "../data/types";
+import { useWeather } from "../data/weather";
 
 function emojiOf(s: Sport): string {
   switch (s) {
@@ -42,6 +43,8 @@ export function Today() {
   }
 
   const firstToday = day?.items.find((i) => i.session.sport !== "mobilita") ?? day?.items[0];
+  const weather = useWeather();
+  const weatherClass = weather.kind === "sunny" ? "" : weather.kind === "rainy" ? "rainy" : "cloudy";
 
   return (
     <>
@@ -67,14 +70,14 @@ export function Today() {
             <div className="hs">{firstToday ? firstToday.session.detail.replace(/\s+·.*$/, "").slice(0, 40) : "Recupera bene"}</div>
           </div>
         </Link>
-        <div className="hero-card hero-weather" aria-label="Meteo locale">
+        <div className={`hero-card hero-weather ${weatherClass}`} aria-label="Meteo locale">
           <div className="row between">
             <span className="hk">Meteo</span>
-            <span className="emoji" aria-hidden="true">☀️</span>
+            <span className="emoji" aria-hidden="true">{weather.emoji}</span>
           </div>
           <div>
-            <div className="temp">22<span className="deg">°</span></div>
-            <div className="hs">Soleggiato · Firenze</div>
+            <div className="temp">{weather.loading ? "—" : weather.tempC}<span className="deg">°</span></div>
+            <div className="hs">{weather.label} · {weather.city}</div>
           </div>
         </div>
       </div>

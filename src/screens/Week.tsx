@@ -2,6 +2,7 @@ import { useState } from "react";
 import { addDays, long, mondayOf, short, today, weekday } from "../data/dates";
 import { useRange, type DayItem } from "../data/hooks";
 import { SessionCard } from "../components/SessionCard";
+import { AddSession } from "../components/AddSession";
 import { Icon, SPORT_COLOR, fmtMin } from "../components/ui";
 
 const DOW = ["L", "M", "M", "G", "V", "S", "D"];
@@ -11,6 +12,7 @@ export function Week() {
   const [mon, setMon] = useState(mondayOf(t));
   const [openId, setOpenId] = useState<string | null>(null);
   const [focusDay, setFocusDay] = useState<string>(t);
+  const [adding, setAdding] = useState(false);
   const sun = addDays(mon, 6);
   const data = useRange(mon, sun);
   const days = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
@@ -126,6 +128,19 @@ export function Week() {
       {focusExtra.map((a) => (
         <div key={a.id} className="mini"><span className="dot" style={{ ["--c" as string]: SPORT_COLOR[a.sport] }} /><span className="s">{a.name} <span className="small muted">· Strava</span></span></div>
       ))}
+
+      {adding ? (
+        <AddSession initialDate={focusDay} onDone={() => setAdding(false)} />
+      ) : (
+        <button className="add-row" onClick={() => setAdding(true)}>
+          <span className="ico" aria-hidden="true">➕</span>
+          <div style={{ flex: 1 }}>
+            <div className="ar-t">Aggiungi una seduta</div>
+            <div className="ar-s">In {long(focusDay).toLowerCase()}</div>
+          </div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" strokeOpacity="0.5" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+      )}
 
       <p className="tiny muted" style={{ textAlign: "center", margin: 0 }}>Tocca un cerchio per vedere il dettaglio del giorno · oggi è {weekday(t)}</p>
     </>
